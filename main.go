@@ -5,7 +5,6 @@ import (
 	"github.com/go-chi/chi"
 	"log"
 	"net/http"
-	"sync"
 	"text/template"
 )
 
@@ -18,11 +17,7 @@ func homeHandler(tpl *template.Template) http.Handler {
 func main() {
 	flag.Parse()
 	tpl := template.Must(template.ParseFiles("index.html"))
-	hub := &Hub{
-		connectionsMx: sync.RWMutex{},
-		connections:   make(map[string]map[*connection]bool),
-	}
-	hub.newHub()
+	hub := newHub()
 	router := chi.NewRouter()
 	router.Handle("/", homeHandler(tpl))
 	router.Handle("/ws", wsHandler{hub})

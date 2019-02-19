@@ -3,8 +3,7 @@ package main
 import (
 	"log"
 	"sync"
-	// "time"
-	"bytes"
+	"time"
 )
 
 // Hub for publish/subscribe mechanism and broadcasts to all other ws connections
@@ -16,41 +15,28 @@ type Hub struct {
 }
 
 // newHub creates new hub which as a goroutine for publish and subscribe
-func (h *Hub) newHub() {
+func newHub() *Hub {
 	// initialize Hub with
+	h := &Hub{
+		connectionsMx: sync.RWMutex{},
+		connections:   make(map[string]map[*connection]bool),
+	}
 	log.Printf("Addr in init %p", h)
-	// goroutine to iterate through all
-	go func() {
-		// for {
-		// 	// msg := <-h.broadcastChannel["2"] //listening on read channel
-		// 	log.Printf("Addr in loop %p", h)
-		// 	h.connectionsMx.RLock()
-		// 	log.Printf("Number of connections: %d", len(h.connections["2"]))
-		// 	for c := range h.connections["2"] {
-
-		// 		//  select blocks/waits on multiple communication operations and executes case thats ready
-		// 		// https://tour.golang.org/concurrency/5
-		// 		select {
-		// 		case c.sendChannel <- msg:
-
-		// 		// Somehow the reader died so stop trying after for 1 second.
-		// 		case <-time.After(1 * time.Second):
-		// 			log.Println("shutting down connection ", c)
-		// 			h.removeDefaultConnection(c)
-		// 		}
-		// 	}
-		// 	h.connectionsMx.RUnlock()
-		// }
-	}()
 	log.Println("New hub created")
+	return h
 }
 func (h *Hub) handleMessages(msg *WebSocketMessage) {
 	log.Printf("Number of connections in group %s: %d", msg.GroupID, len(h.connections[msg.GroupID]))
 	for c := range h.connections[msg.GroupID] {
 		h.connectionsMx.RLock()
-		buff := bytes.NewBufferString(msg.UID + ": ")
-		buff.Write(msg.Message)
-		c.sendChannel <- []byte(buff.String())
+		select {
+
+		case c.sendChannel <- msg.RawMessage:
+
+		case <-time.After(1 * time.Second):
+			log.Println("shutting down connection ", c)
+			h.removeDefaultConnection(c)
+		}
 		h.connectionsMx.RUnlock()
 	}
 }

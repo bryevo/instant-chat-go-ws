@@ -41,9 +41,11 @@
           msg.val("");
           return false;
         });
+        var cb = $("#cb");
         $("#ws").on("click", e => {
           if (window["WebSocket"]) {
-            conn = new WebSocket("ws://localhost:3000/ws");
+
+            conn = cb[0].checked ? new WebSocket("ws://localhost:3000/ws") : new WebSocket("ws://10.93.22.61:3000/ws");;
 
             conn.onopen = e => {
               let blob = new Blob(
@@ -66,10 +68,10 @@
               appendLog($("<div><b>Connection closed.<\/b><\/div>"));
             };
             conn.onmessage = function(e) {
-              // var data = JSON.parse(e.data);
-              console.log(e);
-              // var message = data.username + ": " + data.message;
-              appendLog($("<div/>").text(e.data));
+              var data = JSON.parse(e.data);
+              console.log(data);
+              var message = data.uid + ": " + data.message;
+              appendLog($("<div/>").text(message));
             };
           } else {
             appendLog(
@@ -134,6 +136,7 @@
         type="text"
       />
       <button id="ws">Register Websocket</button>
+      <input type="checkbox" id="cb" value="">is localhost</button>
     </form>
   </body>
 </html>
