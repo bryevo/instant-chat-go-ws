@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Chat Example</title>
+    <script
+    src="https://code.jquery.com/jquery-3.3.1.min.js"
+    integrity="sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8="
+    crossorigin="anonymous"></script>
+    ></script>
+    <script type="text/javascript">
+      $(function() {
+        var conn;
+        var msg = $("#msg");
+        var log = $("#log");
+        var username = $("#username");
+        var other = $("#other");
+        function appendLog(message) {
+          var d = log[0];
+          var doScroll = d.scrollTop == d.scrollHeight - d.clientHeight;
+          message.appendTo(log);
+          if (doScroll) {
+            d.scrollTop = d.scrollHeight - d.clientHeight;
+          }
+        }
+
+        $("#form").submit(function() {
+          if (!conn) {
+            return false;
+          }
+          if (!msg.val()) {
+            return false;
+          }
+          var data = {
+            type: "MESSAGE",
+            uid: username.val(),
+            oid: other.val() || "",
+            groupid: [username.val(), other.val()].sort().join("-"),
+            message: msg.val()
+          };
+          conn.send(JSON.stringify(data));
+          msg.val("");
+          return false;
+        });
+        $("#ws").on("click", e => {
+          if (window["WebSocket"]) {
+            conn = new WebSocket("ws://localhost:3000/ws");
+
+            conn.onopen = e => {
+              let blob = new Blob(
+                [
+                  JSON.stringify({
+                    type: "INIT",
+                    uid: username.val(),
+                    oid: other.val() || "",
+                    groupid: [username.val(), other.val()].sort().join("-"),
+                    message: ""
+                  })
+                ],
+                {
+                  type: "application/json"
+                }
+              );
+              conn.send(blob);
+            };
+            conn.onclose = function(e) {
+              appendLog($("<div><b>Connection closed.<\/b><\/div>"));
+            };
+            conn.onmessage = function(e) {
+              // var data = JSON.parse(e.data);
+              console.log(e);
+              // var message = data.username + ": " + data.message;
+              appendLog($("<div/>").text(e.data));
+            };
+          } else {
+            appendLog(
+              $("<div><b>Your browser does not support WebSockets.<\/b><\/div>")
+            );
+          }
+        });
+      });
+    </script>
+    <style type="text/css">
+      html {
+        overflow: hidden;
+      }
+
+      body {
+        overflow: hidden;
+        padding: 0;
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: gray;
+      }
+
+      #log {
+        background: white;
+        margin: 0;
+        padding: 0.5em 0.5em 0.5em 0.5em;
+        position: absolute;
+        top: 0.5em;
+        left: 0.5em;
+        right: 0.5em;
+        bottom: 3em;
+        overflow: auto;
+      }
+
+      #form {
+        padding: 0 0.5em 0 0.5em;
+        margin: 0;
+        position: absolute;
+        bottom: 1em;
+        left: 0px;
+        width: 100%;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="log"></div>
+    <form id="form" name="form">
+      <input type="submit" value="Send" />
+      <input id="msg" size="64" type="text" />
+      <input
+        id="username"
+        placeholder="Enter your username..."
+        size="32"
+        type="text"
+      />
+      <input
+        id="other"
+        placeholder="Who you want to message..."
+        size="32"
+        type="text"
+      />
+      <button id="ws">Register Websocket</button>
+    </form>
+  </body>
+</html>
