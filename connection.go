@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 )
 
 var upgrader = &websocket.Upgrader{
@@ -21,6 +22,7 @@ type wsHandler struct {
 type connection struct {
 	sendChannel chan []byte // Buffered channel of outbound messages
 	hub         *Hub        // The hub
+	uid         string
 }
 
 type WebSocketMessage struct {
@@ -50,18 +52,23 @@ func (c *connection) reader(wg *sync.WaitGroup, wsConn *websocket.Conn) {
 			GroupID:    data["groupid"].(string),
 			RawMessage: msg,
 		}
+
 		if wsMessage.Type == "INIT" {
 			log.Println("Initialize new ws connection")
+			c.uid = wsMessage.UID
 			c.hub.addNewConnection(c, wsMessage.UID)
 		} else {
 			log.Printf("Read connection. Message Type: %s, Message: %s", wsMessage.Type, wsMessage.RawMessage)
+
+			// if user does not exist in group
 			if !c.hub.connections[wsMessage.GroupID][c] {
 				c.hub.addNewConnection(c, wsMessage.GroupID)
 			}
-			// if participant connection exists
+
+			// if the requested other user connection exists
 			if len(c.hub.connections[wsMessage.OID]) > 0 {
 				for otherConnection := range c.hub.connections[wsMessage.OID] {
-					c.hub.addNewConnection(otherConnection, wsMessage.GroupID) //add other participant in group chat
+					c.hub.addNewConnection(otherConnection, wsMessage.GroupID) //add other user to the group
 				}
 			}
 			// goroutine to send message to correct sendChannel
@@ -82,6 +89,23 @@ func (c *connection) writer(wg *sync.WaitGroup, wsConn *websocket.Conn) {
 	}
 }
 
+// ping goroutine that pings client every 60 seconds. Theres no response after 5 seconds close the connection
+func (c *connection) ping(wg *sync.WaitGroup, wsConn *websocket.Conn) {
+	ticker := time.NewTicker(60 * time.Second)
+	defer wg.Done()
+	defer ticker.Stop()
+	for { // Listening to send channel
+		<-ticker.C
+		wsConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		err := wsConn.WriteMessage(websocket.PingMessage, nil)
+		if err != nil {
+			c.hub.removeNewConnection(c, c.uid)
+			break // breaks to finish wait group
+		}
+		log.Printf("Write ping connection")
+	}
+}
+
 // Implicit ServeHTTP method signature for websocket handler https://www.alexedwards.net/blog/a-recap-of-request-handling
 func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// Upgrade http connection to websocket connection
@@ -93,15 +117,13 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	log.Println("Upgrade connection for", req.RemoteAddr)
 	// Creating new connection
 	c := &connection{sendChannel: make(chan []byte, 256), hub: wsh.hub}
-	// c.hub.addDefaultConnection(c)
-	// defer c.hub.removeDefaultConnection(c)
-	defer log.Println("Connection lost from hub. Removing Connection...")
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go c.writer(&wg, wsConn) // Call publisher goroutine
 	go c.reader(&wg, wsConn) //Call subscribe goroutine
+	go c.ping(&wg, wsConn)   //Call subscribe goroutine
 	wg.Wait()                // Waits until all wait groups are done.
-	log.Println("Finished read/write goroutines. I'm done waiting.")
-	log.Println("Closing websocket...")
+	log.Println("Finished ws goroutines. I'm done waiting.")
+	log.Println("Closed websocket.")
 	wsConn.Close() // Closes websocket once client connection is lost
 }
