@@ -30,11 +30,11 @@ func (h *Hub) handleMessages(msg *WebSocketMessage) {
 	for c := range h.connections[msg.GroupID] {
 		h.connectionsMx.RLock()
 		select {
-		case c.sendChannel <- msg.RawMessage: //Send message to sendChannel
+		case c.sendChannel <- *msg: //Send message to sendChannel
 
 		case <-time.After(1 * time.Second):
 			log.Println("Connection dead: shutting down...", c)
-			h.removeNewConnection(c, msg.GroupID)
+			h.removeConnectionFromHub(c)
 		}
 		h.connectionsMx.RUnlock()
 	}
@@ -43,7 +43,7 @@ func (h *Hub) handleMessages(msg *WebSocketMessage) {
 func (h *Hub) addNewConnection(conn *connection, groupID string) {
 	h.connectionsMx.Lock()
 	defer h.connectionsMx.Unlock()
-	defer log.Println("Attached new connection to hub")
+	defer log.Printf("Attached new connection ID %s to hub", groupID)
 	// Create conversation/group if it doesn't exist
 	if h.connections[groupID] == nil {
 		h.connections[groupID] = make(map[*connection]bool)
@@ -59,5 +59,19 @@ func (h *Hub) removeNewConnection(conn *connection, group string) {
 		delete(h.connections[group], conn)
 		close(conn.sendChannel)
 		log.Printf("Removed connection ID %s from hub\n", group)
+		log.Printf("Length of h.connection[%s]: %d", group, len(h.connections[group]))
+	}
+}
+
+func (h *Hub) removeConnectionFromHub(conn *connection) {
+	h.connectionsMx.Lock()
+	defer h.connectionsMx.Unlock()
+	close(conn.sendChannel)
+	for _, g := range conn.groups {
+		if _, exists := h.connections[g][conn]; exists {
+			delete(h.connections[g], conn)
+			log.Printf("Removed connection ID %s from hub\n", g)
+			log.Printf("Length of h.connection[%s]: %d", g, len(h.connections[g]))
+		}
 	}
 }

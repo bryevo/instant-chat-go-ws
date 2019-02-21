@@ -6,7 +6,7 @@
     src="https://code.jquery.com/jquery-3.3.1.min.js"
     integrity="sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8="
     crossorigin="anonymous"></script>
-    ></script>
+    </script>
     <script type="text/javascript">
       $(function() {
         var conn;
@@ -32,6 +32,7 @@
           }
           var data = {
             type: "MESSAGE",
+            timestamp: new Date().toJSON(),
             uid: username.val(),
             oid: other.val() || "",
             groupid: [username.val(), other.val()].sort().join("-"),
@@ -45,16 +46,17 @@
         $("#ws").on("click", e => {
           if (window["WebSocket"]) {
 
-            conn = cb[0].checked ? new WebSocket("ws://localhost:3000/ws") : new WebSocket("ws://10.93.22.61:3000/ws");;
+            conn = new WebSocket("wss://localhost:443/ws");
 
             conn.onopen = e => {
               let blob = new Blob(
                 [
                   JSON.stringify({
                     type: "INIT",
+                    timestamp: new Date().toJSON(),
                     uid: username.val(),
                     oid: other.val() || "",
-                    groupid: [username.val(), other.val()].sort().join("-"),
+                    groupid: other.val() ? [username.val(), other.val()].sort().join("-") : username.val(), 
                     message: ""
                   })
                 ],
@@ -136,7 +138,7 @@
         type="text"
       />
       <button id="ws">Register Websocket</button>
-      <input type="checkbox" id="cb" value="">is localhost</button>
+      <input type="checkbox" id="cb" value="">is localhost</input>
     </form>
   </body>
 </html>
