@@ -9,14 +9,14 @@
     </script>
     <script type="text/javascript">
       $(function() {
-        var conn;
-        var msg = $("#msg");
-        var log = $("#log");
-        var username = $("#username");
-        var other = $("#other");
+        let conn;
+        let msg = $("#msg");
+        let log = $("#log");
+        let username = $("#username");
+        let other = $("#other");
         function appendLog(message) {
-          var d = log[0];
-          var doScroll = d.scrollTop == d.scrollHeight - d.clientHeight;
+          let d = log[0];
+          let doScroll = d.scrollTop == d.scrollHeight - d.clientHeight;
           message.appendTo(log);
           if (doScroll) {
             d.scrollTop = d.scrollHeight - d.clientHeight;
@@ -30,19 +30,18 @@
           if (!msg.val()) {
             return false;
           }
-          var data = {
+          let data = {
             type: "MESSAGE",
             timestamp: new Date().toJSON(),
-            uid: username.val(),
-            oid: other.val() || "",
-            groupid: [username.val(), other.val()].sort().join("-"),
+            senderId: username.val(),
+            receiverId: other.val() || "",
+            groupId: [username.val(), other.val()].sort().join("-"),
             message: msg.val()
           };
           conn.send(JSON.stringify(data));
           msg.val("");
           return false;
         });
-        var cb = $("#cb");
         $("#ws").on("click", e => {
           if (window["WebSocket"]) {
 
@@ -54,9 +53,9 @@
                   JSON.stringify({
                     type: "INIT",
                     timestamp: new Date().toJSON(),
-                    uid: username.val(),
-                    oid: other.val() || "",
-                    groupid: other.val() ? [username.val(), other.val()].sort().join("-") : username.val(), 
+                    senderId: username.val(),
+                    receiverId: other.val() || "",
+                    groupId: other.val() ? [username.val(), other.val()].sort().join("-") : username.val(), 
                     message: ""
                   })
                 ],
@@ -70,10 +69,17 @@
               appendLog($("<div><b>Connection closed.<\/b><\/div>"));
             };
             conn.onmessage = function(e) {
-              var data = JSON.parse(e.data);
+              let data = JSON.parse(e.data);
               console.log(data);
-              var message = data.uid + ": " + data.message;
-              appendLog($("<div/>").text(message));
+              if (Array.isArray(data)) {
+                data.forEach(msg => {
+                  let message = new Date(msg.timestamp).toLocaleString() + " " + msg.senderId + ": " + msg.message;        
+                  appendLog($("<div/>").text(message));
+                });
+              } else {
+                let message = new Date(data.timestamp).toLocaleString() + " " + data.senderId + ": " + data.message;              
+                appendLog($("<div/>").text(message));
+              }
             };
           } else {
             appendLog(
@@ -138,7 +144,6 @@
         type="text"
       />
       <button id="ws">Register Websocket</button>
-      <input type="checkbox" id="cb" value="">is localhost</input>
     </form>
   </body>
 </html>

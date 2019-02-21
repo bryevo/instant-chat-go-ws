@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -25,7 +26,7 @@ func newHub() *Hub {
 	return h
 }
 
-func (h *Hub) handleMessages(msg *WebSocketMessage) {
+func (h *Hub) handleNewMessages(msg *WebSocketMessage) {
 	log.Printf("Number of connections in group %s: %d", msg.GroupID, len(h.connections[msg.GroupID]))
 	for c := range h.connections[msg.GroupID] {
 		h.connectionsMx.RLock()
@@ -38,6 +39,25 @@ func (h *Hub) handleMessages(msg *WebSocketMessage) {
 		}
 		h.connectionsMx.RUnlock()
 	}
+}
+
+func (h *Hub) getOldMessages(msg *WebSocketMessage, c *connection) {
+	convo, err := c.redis.ZRange(msg.GroupID, 0, -1).Result()
+	if err != nil {
+		log.Println("Error getting redis values: ", err)
+		return
+	}
+	log.Println("Retrieved old messages from redis")
+	// parseable stringified json array of objects
+	msg.RawMessage = []byte("[" + strings.Join(convo, ",") + "]")
+	h.connectionsMx.RLock()
+	select {
+	case c.sendChannel <- *msg: //Send message to sendChannel
+	case <-time.After(1 * time.Second):
+		log.Println("Connection dead: shutting down...", c)
+		h.removeConnectionFromHub(c)
+	}
+	h.connectionsMx.RUnlock()
 }
 
 func (h *Hub) addNewConnection(conn *connection, groupID string) {

@@ -26,9 +26,9 @@ type connection struct {
 
 type WebSocketMessage struct {
 	Type       string `json:"type"`
-	UID        string `json:"uid"`
-	OID        string `json:"oid"`
-	GroupID    string `json:"groupid"`
+	SenderID   string `json:"senderId"`
+	ReceiverID string `json:"receiverId"`
+	GroupID    string `json:"groupId"`
 	Timestamp  string `json:"timestamp"`
 	RawMessage []byte `json:"message"`
 }
@@ -46,17 +46,19 @@ func (c *connection) reader(wg *sync.WaitGroup, wsConn *websocket.Conn) {
 		json.Unmarshal(msg, &data)
 		wsMessage := WebSocketMessage{
 			Type:       data["type"].(string),
-			UID:        data["uid"].(string),
-			OID:        data["oid"].(string),
-			GroupID:    data["groupid"].(string),
+			SenderID:   data["senderId"].(string),
+			ReceiverID: data["receiverId"].(string),
+			GroupID:    data["groupId"].(string),
 			Timestamp:  data["timestamp"].(string),
 			RawMessage: msg,
 		}
 
 		if wsMessage.Type == "INIT" {
 			log.Println("Initialize new ws connection")
-			c.hub.addNewConnection(c, wsMessage.UID)
-			c.groups = append(c.groups, wsMessage.UID)
+			c.hub.addNewConnection(c, wsMessage.SenderID)
+			c.groups = append(c.groups, wsMessage.SenderID)
+			// Retrieve old messages from redis
+			go c.hub.getOldMessages(&wsMessage, c)
 		} else {
 			log.Printf("Read connection. Message Type: %s, Message: %s", wsMessage.Type, wsMessage.RawMessage)
 
@@ -68,8 +70,8 @@ func (c *connection) reader(wg *sync.WaitGroup, wsConn *websocket.Conn) {
 			}
 
 			// if the requested other user connection exists
-			if len(c.hub.connections[wsMessage.OID]) > 0 {
-				for otherConnection := range c.hub.connections[wsMessage.OID] {
+			if len(c.hub.connections[wsMessage.ReceiverID]) > 0 {
+				for otherConnection := range c.hub.connections[wsMessage.ReceiverID] {
 					if !c.hub.connections[wsMessage.GroupID][otherConnection] {
 						log.Println("I want to add other person to the group")
 						c.hub.addNewConnection(otherConnection, wsMessage.GroupID) //add other user to the group
@@ -77,7 +79,7 @@ func (c *connection) reader(wg *sync.WaitGroup, wsConn *websocket.Conn) {
 				}
 			}
 			// goroutine to send message to correct sendChannel
-			go c.hub.handleMessages(&wsMessage)
+			go c.hub.handleNewMessages(&wsMessage)
 		}
 	}
 }
@@ -92,7 +94,10 @@ func (c *connection) writer(wg *sync.WaitGroup, wsConn *websocket.Conn) {
 			break // breaks to finish wait group
 		}
 		log.Printf("Write connection. Message Type: %d, Message: %s", websocket.TextMessage, wsMessage.RawMessage)
-		if bytes.Compare(cachedMessage, wsMessage.RawMessage) != 0 {
+
+		// Do not send duplicate messages in channel stream
+		if wsMessage.Type == "MESSAGE" && bytes.Compare(cachedMessage, wsMessage.RawMessage) != 0 {
+			log.Println("Adding set to redis...")
 			err := c.redis.ZAdd(wsMessage.GroupID, redis.Z{Score: 0, Member: string(wsMessage.RawMessage)}).Err()
 			if err != nil {
 				log.Println("Set redis value error: ", err)
