@@ -62,36 +62,38 @@ func (h *Hub) getOldMessages(msg *WebSocketMessage, c *connection) {
 
 func (h *Hub) addNewConnection(conn *connection, groupID string) {
 	h.connectionsMx.Lock()
-	defer h.connectionsMx.Unlock()
-	defer log.Printf("Attached new connection ID %s to hub", groupID)
 	// Create conversation/group if it doesn't exist
 	if h.connections[groupID] == nil {
 		h.connections[groupID] = make(map[*connection]bool)
 		log.Printf("Created connection ID %s \n", groupID)
 	}
 	h.connections[groupID][conn] = true
+	h.connectionsMx.Unlock()
+	log.Printf("Attached new connection ID %s to hub", groupID)
 }
 
 func (h *Hub) removeNewConnection(conn *connection, group string) {
 	h.connectionsMx.Lock()
-	defer h.connectionsMx.Unlock()
 	if _, exists := h.connections[group][conn]; exists {
 		delete(h.connections[group], conn)
 		close(conn.sendChannel)
 		log.Printf("Removed connection ID %s from hub\n", group)
 		log.Printf("Length of h.connection[%s]: %d", group, len(h.connections[group]))
 	}
+	h.connectionsMx.Unlock()
 }
 
 func (h *Hub) removeConnectionFromHub(conn *connection) {
 	h.connectionsMx.Lock()
-	defer h.connectionsMx.Unlock()
-	close(conn.sendChannel)
+	log.Println("LENGTH BEFORE", len(conn.groups))
 	for _, g := range conn.groups {
 		if _, exists := h.connections[g][conn]; exists {
 			delete(h.connections[g], conn)
 			log.Printf("Removed connection ID %s from hub\n", g)
 			log.Printf("Length of h.connection[%s]: %d", g, len(h.connections[g]))
+			delete(conn.groups, g)
 		}
 	}
+	h.connectionsMx.Unlock()
+	close(conn.sendChannel)
 }

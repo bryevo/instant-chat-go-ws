@@ -44,8 +44,8 @@
         });
         $("#ws").on("click", e => {
           if (window["WebSocket"]) {
-
-            conn = new WebSocket("wss://localhost:443/ws");
+            const uri = document.URL.includes("localhost") ? "wss://localhost:443/ws" :  "wss://" + document.URL.split('/')[2] + ":443/ws"
+            conn = new WebSocket(uri);
 
             conn.onopen = e => {
               let blob = new Blob(

@@ -21,7 +21,7 @@ type connection struct {
 	sendChannel chan WebSocketMessage // Buffered channel of outbound messages
 	hub         *Hub                  // The hub
 	redis       *redis.Client         // The hub
-	groups      []string
+	groups      map[string]string
 }
 
 type WebSocketMessage struct {
@@ -56,7 +56,7 @@ func (c *connection) reader(wg *sync.WaitGroup, wsConn *websocket.Conn) {
 		if wsMessage.Type == "INIT" {
 			log.Println("Initialize new ws connection")
 			c.hub.addNewConnection(c, wsMessage.SenderID)
-			c.groups = append(c.groups, wsMessage.SenderID)
+			c.groups[wsMessage.SenderID] = wsMessage.SenderID
 			// Retrieve old messages from redis
 			go c.hub.getOldMessages(&wsMessage, c)
 		} else {
@@ -66,7 +66,7 @@ func (c *connection) reader(wg *sync.WaitGroup, wsConn *websocket.Conn) {
 			if !c.hub.connections[wsMessage.GroupID][c] {
 				log.Println("Add me to the group")
 				c.hub.addNewConnection(c, wsMessage.GroupID)
-				c.groups = append(c.groups, wsMessage.GroupID)
+				c.groups[wsMessage.GroupID] = wsMessage.GroupID
 			}
 
 			// if the requested other user connection exists
@@ -75,6 +75,7 @@ func (c *connection) reader(wg *sync.WaitGroup, wsConn *websocket.Conn) {
 					if !c.hub.connections[wsMessage.GroupID][otherConnection] {
 						log.Println("I want to add other person to the group")
 						c.hub.addNewConnection(otherConnection, wsMessage.GroupID) //add other user to the group
+						otherConnection.groups[wsMessage.GroupID] = wsMessage.GroupID
 					}
 				}
 			}
@@ -89,15 +90,18 @@ func (c *connection) writer(wg *sync.WaitGroup, wsConn *websocket.Conn) {
 	defer wg.Done()
 	var cachedMessage []byte
 	for wsMessage := range c.sendChannel { // Listening to send channel
+
+		wsConn.SetWriteDeadline(time.Now().Add(5 * time.Second)) // Time to respond
 		err := wsConn.WriteMessage(websocket.TextMessage, wsMessage.RawMessage)
 		if err != nil {
+			log.Println("Cannot write to connection:", err)
 			break // breaks to finish wait group
 		}
 		log.Printf("Write connection. Message Type: %d, Message: %s", websocket.TextMessage, wsMessage.RawMessage)
 
 		// Do not send duplicate messages in channel stream
 		if wsMessage.Type == "MESSAGE" && bytes.Compare(cachedMessage, wsMessage.RawMessage) != 0 {
-			log.Println("Adding set to redis...")
+			log.Println("Adding message set to redis")
 			err := c.redis.ZAdd(wsMessage.GroupID, redis.Z{Score: 0, Member: string(wsMessage.RawMessage)}).Err()
 			if err != nil {
 				log.Println("Set redis value error: ", err)
@@ -114,7 +118,7 @@ func (c *connection) ping(wg *sync.WaitGroup, wsConn *websocket.Conn) {
 	defer ticker.Stop()
 	for { // Listening to send channel
 		<-ticker.C
-		// wsConn.SetWriteDeadline(time.Now().Add(900 * time.Second)) // Time to respond
+		wsConn.SetWriteDeadline(time.Now().Add(5 * time.Second)) // Time to respond
 		err := wsConn.WriteMessage(websocket.PingMessage, nil)
 		if err != nil {
 			log.Printf("Pong failed")
@@ -138,7 +142,7 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	log.Println(pong, err)
 
 	// Creating new connection
-	c := &connection{sendChannel: make(chan WebSocketMessage, 256), hub: wsh.hub, redis: wsh.redis}
+	c := &connection{sendChannel: make(chan WebSocketMessage, 256), hub: wsh.hub, redis: wsh.redis, groups: make(map[string]string)}
 	var wg sync.WaitGroup
 	wg.Add(3)
 	go c.writer(&wg, wsConn) // Call publisher goroutine
